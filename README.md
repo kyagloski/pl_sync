@@ -1,6 +1,5 @@
 # pl_sync
-<br />
-<br />
+
 depending on who you are, this may have a very niche use case, but for others, its very useful
 this script syncs all m3u playlist files (given the same file structure) in a directory with a subsonic server
 <br />
