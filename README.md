@@ -13,6 +13,6 @@ once this is done just point the script to a the directory with the statically m
 using this script, it will just be a dummy account that has no access rights other than fucking with your playlists (which you should hopefully have backed up)
 <br />
 <br />
-*dependencies*: <br />
+**dependencies**: <br />
   xmltodict (for reading xml rest response from server) <br />
   requests (if you dont already have it, I cant remember if this is a standard python library) <br />
