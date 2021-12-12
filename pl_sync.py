@@ -4,14 +4,6 @@ import os, threading, time, copy
 import requests
 import xmltodict
 
-# pseudo-globals
-playlist_dir = "."
-directory_offset = "/mnt/music/"
-api_user = ""
-api_pass = ""
-query_domain = ""
-auth_data = "u=" + api_user + "&p=" + api_pass + "&v=1.16&c=pl_sync" # use md5 hash with salt for actual use
-
 query_types = {}
 query_types["ping"] = "ping.view?"  
 query_types["getPlaylist"] = "getPlaylist.view?"
@@ -20,13 +12,16 @@ query_types["createPlaylist"] = "createPlaylist.view?"
 query_types["deletePlaylist"] = "deletePlaylist.view?"
 query_types["getSong"] = "getSong.view?"
 
+DEBUG = 0
 GET_OUTPUT = 1 # if true get requests are printed
+
 
 def basic_get(query_type, query_args=None):
     # params: query_type: found in query_types dict
     #         query_args: arguments for query type, not always required
     #                     more info here: http://www.subsonic.org/pages/api.jsp
-    query = query_domain + query_type + auth_data
+    global server_domain, api_user_name, api_user_pass
+    query = server_domain + query_type + "u=" + api_user_name + "&p=" + api_user_pass + "&v=1.16&c=pl_sync"
     if query_args != None:
         for i in query_args: # dictionary
             if type(query_args[i]) == list: # checks if val of dict key is list
@@ -39,11 +34,12 @@ def basic_get(query_type, query_args=None):
     dict_data = xmltodict.parse(response.content)
     return dict_data
 
-def read_m3u(dir, dir_strip=""):
+def read_m3u(dir):
     # params: dir: the directory you want to read in
     #         dir_strip: optional, path that gets stripped off dir name (to match subsonic generated m3u8 exports)
     m3us = {} # format: file_name : file_object 
     playlists = {} # format: playlist_name : song_array
+    global directory_offset # yeah i know, i know, im not proud of it
     try: # path is a file
         f = open(dir)
         f_name = os.path.basename(f.name) # file name
@@ -63,8 +59,21 @@ def read_m3u(dir, dir_strip=""):
             j = j.strip()
             if j == "#EXTM3U": # skip header
                 continue
-            playlists[i].append(j[len(dir_strip)::])
+            playlists[i].append(j[len(directory_offset)::])
     return playlists
+
+def get_args_ini():
+    server_domain, api_user_name, api_user_pass, playlist_dir, directory_offset = "", "", "", "", ""
+    f = open("pl_sync.ini")
+    for i in f:
+        if '[pl_sync_args]' in i: continue
+        i = i.replace('"', "").replace("'", "").strip().split('=')
+        if i[0] == 'server_domain': server_domain = i[1] + 'rest/'
+        if i[0] == 'api_user_name': api_user_name = i[1]
+        if i[0] == 'api_user_pass': api_user_pass = i[1]
+        if i[0] == 'playlist_dir': playlist_dir = i[1]
+        if i[0] == 'directory_offset': directory_offset = i[1]
+    return server_domain, api_user_name, api_user_pass, playlist_dir, directory_offset
 
 def get_playlist(id):
     # params: id: int id of playlist (1 start index)
@@ -83,6 +92,20 @@ def get_playlist(id):
     playlist_name = {dict_data['subsonic-response']['playlist']['@name'] : songs_name}
     return playlist_ids, playlist_name
 
+def get_playlist_id(name):
+    # params: name: name of playlist (provided from m3u)
+    dict_data = basic_get(query_types["getPlaylists"])
+    name_id_dict = {}
+    try:
+        for i in dict_data['subsonic-response']['playlists']['playlist']:
+            name_id_dict[i['@name']] = i['@id']
+        for i in name_id_dict:
+            if name == i:
+                return name_id_dict[i]
+    except:
+        #print("get_playlist_id error: \n ↳ cannot find playlist")
+        return None  
+
 def del_playlist(playlist_name):
     # params: playlist_name: str playlist name to be deleted
     pl_id = get_playlist_id(playlist_name) 
@@ -91,21 +114,6 @@ def del_playlist(playlist_name):
     else:
         print("del_playlist error:\n ↳ playlist does not exist")
     return dict_data
-
-def playlist_diff(playlist_name):
-    # gathers diff for m3u pl and subsonic pl
-    #   will not be useful anymore, decided to just overwrite everytime (makes more sense)
-    try:
-        m3u_songs = {playlist_name : read_m3u(playlist_dir, directory_offset)[playlist_name]}
-        sub_songs_id, sub_songs = get_playlist(get_playlist_id(playlist_name))
-    except:
-        print("playlist_diff error:\n ↳ playlist does not exist")
-    #print_d(m3u_songs, "local:🡇")
-    #print_d(sub_songs, "remote:🡇")
-    a = m3u_songs[playlist_name]
-    b = sub_songs[playlist_name]
-    diff_list = [i for i in a+b if i not in a or i not in b] # exclusive or (but not really because order isnt preserved idiots)
-    return diff_list
 
 def get_all_songs(song_dict):
     error_count = 0
@@ -133,7 +141,7 @@ def sync_playlists(playlist_dir):
     @params: playlist_name: name of playlist to update or create
              master_song_list: list of all songs to grab song ids from
     """
-    m3u_pls = read_m3u(playlist_dir, directory_offset)
+    m3u_pls = read_m3u(playlist_dir)
     for playlist_name in m3u_pls:
         pl_id = get_playlist_id(playlist_name)
         error_list = m3u_pls[playlist_name][:] # keeps track of what was not added to song_update_ids
@@ -141,7 +149,7 @@ def sync_playlists(playlist_dir):
         global master_song_list
         for i in m3u_pls[playlist_name]:
             for j in master_song_list:
-                if j == i:
+                if j in i: # this really should be an == but, for some reason that does not work
                     song_update_ids.append(master_song_list[j])
                     error_list.remove(i)
         for i in error_list:
@@ -156,39 +164,16 @@ def sync_playlists(playlist_dir):
             print("updatePlaylist error: \n ↳ ", dict_data['subsonic-response']['error']['@message'])
     print("> syncing completed!")
 
-def get_playlist_id(name):
-    # params: name: name of playlist (provided from m3u)
-    dict_data = basic_get(query_types["getPlaylists"])
-    name_id_dict = {}
-    try:
-        for i in dict_data['subsonic-response']['playlists']['playlist']:
-            name_id_dict[i['@name']] = i['@id']
-        for i in name_id_dict:
-            if name == i:
-                return name_id_dict[i]
-    except:
-        #print("get_playlist_id error: \n ↳ cannot find playlist")
-        return None  
-
-def print_d(d, start_str=None, end_str=None):
-    #if type(d) != dict or type(d) != OrderedDict:
-    #    print("print_d error:\n ↳ not a dictionary"); return
-    line_break = "--------------------------------"
-    if start_str:
-        print("→", start_str)
-    for i in d:
-        print(line_break)
-        for j in d[i]:
-            print(i, ": ", j)
-    print(line_break)
-    if end_str:
-        print("→", end_str)
 
 if __name__ == "__main__":
-    # get all songs in background as first task (it takes a few seconds)
-    global master_song_list
-    master_song_list = get_all_songs({}) # non threaded call
-    #song_thread = threading.Thread(target=get_all_songs, args=(master_song_list,)).start()
-
-    sync_playlists('')
+    if DEBUG == 0:
+        # gather data
+        global server_domain, api_user_name, api_user_pass, playlist_dir, directory_offset # im lazy, sue me (actually dont)  
+        global master_song_list          
+        server_domain, api_user_name, api_user_pass, playlist_dir, directory_offset = get_args_ini()  
+        master_song_list = get_all_songs({}) # get all songs in background as first task (it takes a few seconds)
+        # execute order 66
+        sync_playlists(playlist_dir)
+    else:
+        pass
 
