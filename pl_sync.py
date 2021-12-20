@@ -177,7 +177,7 @@ def sync_playlists(playlist_dir):
             print("updatePlaylist error: \n ↳ ", dict_data['subsonic-response']['error']['@message'])
     print("> syncing completed!")
 
-
+# TODO: ini wizard to help user make ini file that suits them
 if __name__ == "__main__":
     if 1:
         # gather data
