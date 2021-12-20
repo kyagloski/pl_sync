@@ -66,8 +66,7 @@ def read_m3u(dir):
         playlists[i] = []
         for j in m3us[i]:
             j = j.strip()
-            if j == "#EXTM3U": # skip header
-                continue
+            if j == "#EXTM3U": continue # skip header
             playlists[i].append(j[len(directory_offset)::])
     return playlists
 
