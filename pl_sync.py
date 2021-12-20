@@ -1,19 +1,20 @@
 #!/usr/bin/python3
 
-import os, threading, time, copy
+import os, pathlib
+# required dependencies
 import requests
 import xmltodict
 
 query_types = {}
 query_types["ping"] = "ping.view?"  
 query_types["getPlaylist"] = "getPlaylist.view?"
-query_types["getPlaylists"] = "getPlaylists.view?"    
-query_types["createPlaylist"] = "createPlaylist.view?" 
+query_types["getPlaylists"] = "getPlaylists.view?"   
+query_types["updatePlaylist"] = "updatePlaylist.view?" 
+query_types["createPlaylist"] = "createPlaylist.view?"
 query_types["deletePlaylist"] = "deletePlaylist.view?"
 query_types["getSong"] = "getSong.view?"
-
+ 
 DEBUG = 0
-GET_OUTPUT = 1 # if true get requests are printed
 
 
 def basic_get(query_type, query_args=None):
@@ -28,8 +29,8 @@ def basic_get(query_type, query_args=None):
                 for j in query_args[i]:
                     query += ("&" + i + "=" + j)
             else:
-                query += ("&" + i + "=" + query_args[i]) 
-    if GET_OUTPUT: print("sending query at: ", query)
+                query += ("&" + i + "=" + query_args[i])
+    if DEBUG: print(">> sending query at: ", query)
     response = requests.get(query)
     dict_data = xmltodict.parse(response.content)
     return dict_data
@@ -40,18 +41,26 @@ def read_m3u(dir):
     m3us = {} # format: file_name : file_object 
     playlists = {} # format: playlist_name : song_array
     global directory_offset # yeah i know, i know, im not proud of it
+    if dir == "": dir = str((pathlib.Path().absolute()) / "_")[:-1] # scan current directory if ini entry is empty
     try: # path is a file
         f = open(dir)
+        print("> found playlist file:", dir)
         f_name = os.path.basename(f.name) # file name
         if "m3u" in f_name[-4:]: # check if file is m3u or m3u8
             m3us[f_name.split('.')[0]] = f
+            print("> found playlist file:", dir)
         #else: print("incorrect file type:\n ↳ " + f_name); return
     except: # path is a directory
         for i in os.listdir(dir):
-            f = open(dir + i)
+            try: # not great
+                f = open(dir + i)
+            except:
+                print(">> not attempting to open file or directory:", dir + i)
+                continue
             f_name = os.path.basename(f.name) # file name
             if "m3u" in f_name[-4:]: # check if file is m3u or m3u8
                 m3us[f_name.split('.')[0]] = f
+                print("> found playlist file:", dir + i)
             #else: print("incorrect file type:\n ↳ " + f_name + " → skipping...")
     for i in m3us:
         playlists[i] = []
@@ -64,7 +73,11 @@ def read_m3u(dir):
 
 def get_args_ini():
     server_domain, api_user_name, api_user_pass, playlist_dir, directory_offset = "", "", "", "", ""
-    f = open("pl_sync.ini")
+    try:
+        f = open("pl_sync.ini")
+    except:
+        print(">> cannot find pl_sync.ini file \n>> exiting")
+        quit()
     for i in f:
         if '[pl_sync_args]' in i: continue
         i = i.replace('"', "").replace("'", "").strip().split('=')
@@ -117,21 +130,19 @@ def del_playlist(playlist_name):
 
 def get_all_songs(song_dict):
     error_count = 0
+    max_error_count = 100
     song_id = 0
     print("> spinning thread for: all songs")
-    print("> temporarily disabling get_output to reduce terminal spam")
-    global GET_OUTPUT
-    GET_OUTPUT = 0
-    while error_count <= 5:
+    while error_count <= max_error_count:
         dict_data = basic_get(query_types["getSong"], {"id": str(song_id)})
         if dict_data["subsonic-response"]["@status"] == "failed":
+            if DEBUG: print(">>> gathering song error with id: ", song_id)
             error_count += 1
         else:
             error_count = 0
             song_dict[dict_data["subsonic-response"]["song"]["@path"]] = str(song_id)
         song_id += 1
     print("> finished gathering all songs")
-    GET_OUTPUT = 1
     return song_dict
 
 def sync_playlists(playlist_dir):
@@ -149,7 +160,7 @@ def sync_playlists(playlist_dir):
         global master_song_list
         for i in m3u_pls[playlist_name]:
             for j in master_song_list:
-                if j in i: # this really should be an == but, for some reason that does not work
+                if j in i: # this really should be an ==, but for some reason that does not work
                     song_update_ids.append(master_song_list[j])
                     error_list.remove(i)
         for i in error_list:
@@ -160,16 +171,18 @@ def sync_playlists(playlist_dir):
                                                                 "songId": song_update_ids})
         else: # playlist does not exists, make new one
             dict_data = basic_get(query_types["createPlaylist"], {"name": playlist_name, "songId": song_update_ids})
+            dict_data1 = basic_get(query_types["updatePlaylist"], {"playlistId": get_playlist_id(playlist_name),
+                                                                "public": "true"}) # make playlist public
         if dict_data['subsonic-response']['@status'] != "ok":
             print("updatePlaylist error: \n ↳ ", dict_data['subsonic-response']['error']['@message'])
     print("> syncing completed!")
 
 
 if __name__ == "__main__":
-    if DEBUG == 0:
+    if 1:
         # gather data
         global server_domain, api_user_name, api_user_pass, playlist_dir, directory_offset # im lazy, sue me (actually dont)  
-        global master_song_list          
+        global master_song_list
         server_domain, api_user_name, api_user_pass, playlist_dir, directory_offset = get_args_ini()  
         master_song_list = get_all_songs({}) # get all songs in background as first task (it takes a few seconds)
         # execute order 66
