@@ -66,8 +66,7 @@ def read_m3u(dir):
         playlists[i] = []
         for j in m3us[i]:
             j = j.strip()
-            if j == "#EXTM3U": # skip header
-                continue
+            if j == "#EXTM3U": continue # skip header
             playlists[i].append(j[len(directory_offset)::])
     return playlists
 
@@ -169,6 +168,8 @@ def sync_playlists(playlist_dir):
             dict_data = basic_get(query_types["createPlaylist"], {"playlistId": pl_id, 
                                                                 "name": playlist_name,
                                                                 "songId": song_update_ids})
+            dict_data1 = basic_get(query_types["updatePlaylist"], {"playlistId": get_playlist_id(playlist_name),
+                                                                "public": "true"}) # make playlist public every time for redundancy
         else: # playlist does not exists, make new one
             dict_data = basic_get(query_types["createPlaylist"], {"name": playlist_name, "songId": song_update_ids})
             dict_data1 = basic_get(query_types["updatePlaylist"], {"playlistId": get_playlist_id(playlist_name),
@@ -177,7 +178,7 @@ def sync_playlists(playlist_dir):
             print("updatePlaylist error: \n ↳ ", dict_data['subsonic-response']['error']['@message'])
     print("> syncing completed!")
 
-
+# TODO: ini wizard to help user make ini file that suits them
 if __name__ == "__main__":
     if 1:
         # gather data
