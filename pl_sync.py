@@ -218,7 +218,6 @@ if __name__ == "__main__":
             elif sys.argv[1] in ['help', '-h', '-help']: print_help()
         except Exception as e:
             # execute order 66
-            print(e)
             sync_playlists(playlist_dir)
         
     else:
